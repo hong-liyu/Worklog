@@ -1,0 +1,34 @@
+{
+  "name": "worklog",
+  "private": true,
+  "version": "1.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 127.0.0.1",
+    "dev:api": "node scripts/wrangler.mjs pages dev",
+    "build": "vue-tsc --noEmit && vite build",
+    "functions:check": "node scripts/wrangler.mjs pages functions build functions --outdir .pages-build",
+    "typecheck": "vue-tsc --noEmit",
+    "setup:local": "npm run db:migrate:local && node scripts/create-user.ts --local",
+    "test": "vitest run",
+    "db:migrate:local": "node scripts/wrangler.mjs d1 migrations apply worklog --local",
+    "db:migrate:remote": "node scripts/wrangler.mjs d1 migrations apply worklog --remote",
+    "deploy": "npm run build && node scripts/wrangler.mjs pages deploy"
+  },
+  "dependencies": {
+    "@lucide/vue": "^1.66.0",
+    "dexie": "^4.0.0",
+    "vue": "^3.5.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@vitejs/plugin-vue": "^6.0.10",
+    "fake-indexeddb": "^6.2.0",
+    "typescript": "^5.9.0",
+    "vite": "^8.3.5",
+    "vite-plugin-pwa": "^2.0.0",
+    "vitest": "^5.1.0",
+    "vue-tsc": "^3.3.14",
+    "wrangler": "4.157.0"
+  }
+}

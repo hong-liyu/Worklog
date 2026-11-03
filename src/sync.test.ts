@@ -1,0 +1,136 @@
+import 'fake-indexeddb/auto'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import type { RecordInput, WorkRecord } from './domain'
+import { allRecords, db, pendingOps, saveRecord } from './storage'
+import { syncNow } from './sync'
+
+const input: RecordInput = {
+  workDate: '2026-11-03',
+  location: 'art_center',
+  startTime: '16:00',
+  baseMinutes: 120,
+  overtimeMinutes: 0,
+  timezone: 'Asia/Shanghai'
+}
+
+type FetchMock = (url: string, init?: RequestInit) => Promise<Response>
+
+function stubFetch(handler: FetchMock): void {
+  vi.stubGlobal(
+    'fetch',
+    vi.fn((target: RequestInfo | URL, init?: RequestInit) => handler(String(target), init))
+  )
+}
+
+function opIds(init?: RequestInit): string[] {
+  if (!init?.body) return []
+  const body = JSON.parse(String(init.body)) as { operations: { opId: string }[] }
+  return body.operations.map(operation => operation.opId)
+}
+
+beforeEach(async () => {
+  await db.delete()
+  await db.open()
+})
+
+afterEach(() => {
+  vi.unstubAllGlobals()
+})
+
+describe('同步流程', () => {
+  it('推送成功后清空队列，状态变为已同步', async () => {
+    const record = await saveRecord(input)
+    const wire: WorkRecord = { ...record, revision: 1, updatedAt: new Date().toISOString() }
+
+    stubFetch(async (url, init) => {
+      if (url.includes('/sync/operations')) {
+        const [opId] = opIds(init)
+        return Response.json({
+          cursor: 1,
+          results: [{ opId, status: 'success', revision: 1, record: wire }]
+        })
+      }
+      return Response.json({ cursor: 1, hasMore: false, changes: [] })
+    })
+
+    const state = await syncNow()
+    expect(state).toEqual({ phase: 'synced', pending: 0 })
+    expect(await pendingOps()).toHaveLength(0)
+    const [stored] = await allRecords()
+    expect(stored).toMatchObject({ revision: 1, dirty: 0 })
+  })
+
+  it('版本冲突时换成服务器 revision 重投，最终报告冲突而不是静默覆盖', async () => {
+    const record = await saveRecord(input)
+    const serverRecord: WorkRecord = { ...record, revision: 5, location: 'sutuo' }
+
+    stubFetch(async (url, init) => {
+      if (url.includes('/sync/operations')) {
+        return Response.json({
+          cursor: 0,
+          results: [{ opId: opIds(init)[0], status: 'conflict', revision: 5, record: serverRecord }]
+        })
+      }
+      return Response.json({ cursor: 0, hasMore: false, changes: [] })
+    })
+
+    const state = await syncNow()
+    expect(state.phase).toBe('conflict')
+    const ops = await pendingOps()
+    expect(ops).toHaveLength(1)
+    expect(ops[0]?.baseRevision).toBe(5)
+    // 本机内容没有被服务器版本静默覆盖
+    const [stored] = await allRecords()
+    expect(stored?.location).toBe('art_center')
+  })
+
+  it('拉取到远端变更后写入本地并推进游标', async () => {
+    const remote: WorkRecord = {
+      id: crypto.randomUUID(),
+      workDate: '2026-11-06',
+      location: 'sutuo',
+      startTime: '18:00',
+      baseMinutes: 180,
+      overtimeMinutes: 60,
+      timezone: 'Asia/Shanghai',
+      createdAt: '2026-11-06T10:00:00.000Z',
+      updatedAt: '2026-11-06T10:00:00.000Z',
+      revision: 1,
+      deletedAt: null
+    }
+
+    stubFetch(async url => {
+      if (url.includes('/sync/operations')) return Response.json({ cursor: 0, results: [] })
+      return Response.json({ cursor: 4, hasMore: false, changes: [{ seq: 4, record: remote }] })
+    })
+
+    const state = await syncNow()
+    expect(state.phase).toBe('synced')
+
+    const [stored] = await allRecords()
+    expect(stored?.id).toBe(remote.id)
+    expect(stored?.baseMinutes).toBe(180)
+    expect(stored?.dirty).toBe(0)
+    expect(await db.meta.get('syncCursor')).toMatchObject({ value: 4 })
+  })
+
+  it('登录失效时返回 unauthorized，不清空本地数据', async () => {
+    await saveRecord(input)
+    stubFetch(async () => new Response(null, { status: 401 }))
+
+    const state = await syncNow()
+    expect(state.phase).toBe('unauthorized')
+    expect(await allRecords()).toHaveLength(1)
+  })
+
+  it('网络异常时保留队列并报告失败', async () => {
+    await saveRecord(input)
+    stubFetch(async () => {
+      throw new Error('network down')
+    })
+
+    const state = await syncNow()
+    expect(state.phase).toBe('failed')
+    expect(await pendingOps()).toHaveLength(1)
+  })
+})
