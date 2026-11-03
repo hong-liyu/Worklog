@@ -10,6 +10,7 @@
     "functions:check": "node scripts/wrangler.mjs pages functions build functions --outdir .pages-build",
     "typecheck": "vue-tsc --noEmit",
     "setup:local": "npm run db:migrate:local && node scripts/create-user.ts --local",
+    "setup:remote": "npm run db:migrate:remote && node scripts/create-user.ts --remote",
     "test": "vitest run",
     "db:migrate:local": "node scripts/wrangler.mjs d1 migrations apply worklog --local",
     "db:migrate:remote": "node scripts/wrangler.mjs d1 migrations apply worklog --remote",
