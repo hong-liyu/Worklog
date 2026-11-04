@@ -1,14 +1,17 @@
 export type WorkLocation = 'art_center' | 'sutuo'
-export type DayColor = 'empty' | WorkLocation | 'mixed'
+export type RecordType = 'duty' | 'overtime'
+export type DayColor = 'empty' | WorkLocation | 'mixed' | 'overtime'
 export const MAX_OVERTIME_MINUTES = 720
 export const LOCATION_LABEL: Record<WorkLocation, string> = { art_center: '艺术中心', sutuo: '素拓' }
 
 export interface WorkRecord {
   id: string
   workDate: string
-  location: WorkLocation
+  recordType: RecordType
+  workContent: string | null
+  location: WorkLocation | null
   startTime: string
-  baseMinutes: 120 | 180
+  baseMinutes: 0 | 120 | 180
   overtimeMinutes: number
   timezone: string
   createdAt: string
@@ -17,10 +20,15 @@ export interface WorkRecord {
   deletedAt: string | null
 }
 
-export type RecordInput = Pick<
-  WorkRecord,
+// Missing new fields are accepted for queued records from older clients.
+export type RecordInput = Pick<WorkRecord,
   'workDate' | 'location' | 'startTime' | 'baseMinutes' | 'overtimeMinutes' | 'timezone'
->
+> & { recordType?: RecordType; workContent?: string | null }
+
+export function normalizeRecord<T extends RecordInput>(record: T): T & { recordType: RecordType; workContent: string | null } {
+  const recordType = record.recordType ?? 'duty'
+  return { ...record, recordType, workContent: recordType === 'overtime' ? (record.workContent ?? '').trim() : null }
+}
 
 const pad = (value: number): string => String(value).padStart(2, '0')
 
@@ -75,9 +83,20 @@ export function validDate(value: string): boolean {
 
 export function validateInput(input: RecordInput): void {
   if (!validDate(input.workDate)) throw new Error('日期无效')
-  if (!['art_center', 'sutuo'].includes(input.location)) throw new Error('工作地点无效')
+  const type = input.recordType ?? 'duty'
+  if (type !== 'duty' && type !== 'overtime') throw new Error('记录类型无效')
+  if (type === 'duty') {
+    if (input.location !== 'art_center' && input.location !== 'sutuo') throw new Error('工作地点无效')
+    if (input.baseMinutes !== 120 && input.baseMinutes !== 180) throw new Error('基础工时无效')
+    if (input.workContent != null) throw new Error('值班记录不需要工作内容')
+  } else {
+    if (input.location !== null || input.baseMinutes !== 0) throw new Error('独立加班不包含地点或基础工时')
+    if (typeof input.workContent !== 'string' || !input.workContent.trim() || Array.from(input.workContent.trim()).length > 100) {
+      throw new Error('请填写工作内容，最多100字')
+    }
+    if (input.overtimeMinutes < 1) throw new Error('加班时长至少1分钟')
+  }
   timeMinutes(input.startTime)
-  if (input.baseMinutes !== 120 && input.baseMinutes !== 180) throw new Error('基础工时无效')
   if (
     !Number.isInteger(input.overtimeMinutes) ||
     input.overtimeMinutes < 0 ||
@@ -102,22 +121,29 @@ export function endTimestamp(
 
 export function dayColor(records: WorkRecord[], date: string): DayColor {
   const locations = new Set(
-    records.filter(record => !record.deletedAt && record.workDate === date).map(record => record.location)
+    records.filter(record => !record.deletedAt && record.workDate === date && record.recordType !== 'overtime').map(record => record.location)
   )
   if (locations.size === 2) return 'mixed'
   if (locations.has('art_center')) return 'art_center'
   if (locations.has('sutuo')) return 'sutuo'
+  if (hasStandaloneOvertime(records, date)) return 'overtime'
   return 'empty'
+}
+
+export function hasStandaloneOvertime(records: WorkRecord[], date: string): boolean {
+  return records.some(record => !record.deletedAt && record.workDate === date && record.recordType === 'overtime')
 }
 
 export function monthlySummary(
   records: WorkRecord[],
   month: string
-): { totalMinutes: number; workedDays: number } {
+): { totalMinutes: number; workedDays: number; dutyMinutes: number; overtimeMinutes: number } {
   const active = records.filter(record => !record.deletedAt && record.workDate.startsWith(`${month}-`))
   return {
     totalMinutes: active.reduce((sum, record) => sum + record.baseMinutes + record.overtimeMinutes, 0),
-    workedDays: new Set(active.map(record => record.workDate)).size
+    workedDays: new Set(active.map(record => record.workDate)).size,
+    dutyMinutes: active.reduce((sum, record) => sum + record.baseMinutes, 0),
+    overtimeMinutes: active.reduce((sum, record) => sum + record.overtimeMinutes, 0)
   }
 }
 
@@ -145,15 +171,17 @@ export function toCSV(records: WorkRecord[]): string {
         left.workDate.localeCompare(right.workDate) || left.startTime.localeCompare(right.startTime)
     )
 
-  const header = ['日期', '地点', '开始时间', '结束时间', '基础工时(h)', '加班工时(h)', '总工时(h)']
+  const header = ['日期', '地点', '开始时间', '结束时间', '基础工时(h)', '加班工时(h)', '总工时(h)', '记录类型', '工作内容']
   const data = rows.map(record => [
     record.workDate,
-    LOCATION_LABEL[record.location],
+    record.location ? LOCATION_LABEL[record.location] : '',
     record.startTime,
     endTimestamp(record),
     String(Number((record.baseMinutes / 60).toFixed(2))),
     String(Number((record.overtimeMinutes / 60).toFixed(2))),
-    String(Number(((record.baseMinutes + record.overtimeMinutes) / 60).toFixed(2)))
+    String(Number(((record.baseMinutes + record.overtimeMinutes) / 60).toFixed(2))),
+    record.recordType === 'overtime' ? '独立加班' : '值班',
+    record.workContent ?? ''
   ])
 
   return `\ufeff${[header, ...data].map(row => row.map(csvCell).join(',')).join('\r\n')}\r\n`

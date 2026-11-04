@@ -14,9 +14,11 @@ export type OperationStatus = 'success' | 'conflict' | 'validation_error'
 export interface RecordPayload {
   id: string
   workDate: string
-  location: WorkLocation
+  recordType: 'duty' | 'overtime'
+  workContent: string | null
+  location: WorkLocation | null
   startTime: string
-  baseMinutes: 120 | 180
+  baseMinutes: 0 | 120 | 180
   overtimeMinutes: number
   timezone: string
 }
@@ -53,20 +55,29 @@ export function parseRecord(value: unknown): RecordPayload {
   const workDate = raw.workDate
   if (typeof workDate !== 'string' || !isRealDate(workDate)) invalid('日期无效')
 
+  const recordType = raw.recordType ?? 'duty'
+  if (recordType !== 'duty' && recordType !== 'overtime') invalid('记录类型无效')
   const location = raw.location
-  if (location !== 'art_center' && location !== 'sutuo') invalid('工作地点无效')
+  const workContent = typeof raw.workContent === 'string' ? raw.workContent.trim() : null
+  if (recordType === 'duty') {
+    if (location !== 'art_center' && location !== 'sutuo') invalid('工作地点无效')
+    if (raw.workContent != null) invalid('值班记录不需要工作内容')
+  } else {
+    if (location !== null) invalid('独立加班不包含地点')
+    if (!workContent || Array.from(workContent).length > 100) invalid('请填写工作内容，最多100字')
+  }
 
   const startTime = raw.startTime
   if (typeof startTime !== 'string' || !TIME_RE.test(startTime)) invalid('开始时间无效')
 
   const baseMinutes = raw.baseMinutes
-  if (baseMinutes !== 120 && baseMinutes !== 180) invalid('基础工时必须是 2 小时或 3 小时')
+  if (recordType === 'duty' ? baseMinutes !== 120 && baseMinutes !== 180 : baseMinutes !== 0) invalid('基础工时无效')
 
   const overtimeMinutes = raw.overtimeMinutes
   if (
     typeof overtimeMinutes !== 'number' ||
     !Number.isInteger(overtimeMinutes) ||
-    overtimeMinutes < 0 ||
+    overtimeMinutes < (recordType === 'overtime' ? 1 : 0) ||
     overtimeMinutes > MAX_OVERTIME_MINUTES
   ) {
     invalid('加班时间无效')
@@ -75,7 +86,7 @@ export function parseRecord(value: unknown): RecordPayload {
   const timezone = raw.timezone
   if (typeof timezone !== 'string' || !TIMEZONE_RE.test(timezone)) invalid('时区无效')
 
-  return { id, workDate, location, startTime, baseMinutes, overtimeMinutes, timezone }
+  return { id, workDate, recordType, workContent, location: location as WorkLocation | null, startTime, baseMinutes: baseMinutes as 0 | 120 | 180, overtimeMinutes, timezone }
 }
 
 export function parseOperations(value: unknown): Operation[] {

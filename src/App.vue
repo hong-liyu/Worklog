@@ -8,7 +8,7 @@ import RecordForm from './components/RecordForm.vue'
 import SettingsSheet from './components/SettingsSheet.vue'
 import LoginView from './views/LoginView.vue'
 import { logout, request } from './api'
-import { formatHours, localDate, monthlySummary, toCSV, type RecordInput, type WorkLocation } from './domain'
+import { formatHours, localDate, monthlySummary, toCSV, type RecordInput, type RecordType, type WorkLocation } from './domain'
 import {
   allRecords,
   clearLocalData,
@@ -32,6 +32,7 @@ const records = ref<LocalRecord[]>([])
 const sheet = ref<Sheet>(null)
 const selectedDate = ref(today.value)
 const editing = ref<LocalRecord>()
+const formType = ref<RecordType>('duty')
 const fromDetail = ref(false)
 const lastLocation = ref<WorkLocation>('art_center')
 const message = ref('')
@@ -153,10 +154,11 @@ function openDetail(date: string): void {
   sheet.value = 'detail'
 }
 
-function openForm(date: string, record?: LocalRecord, originDetail = false): void {
+function openForm(date: string, record?: LocalRecord, originDetail = false, recordType: RecordType = 'duty'): void {
   today.value = localDate(new Date())
   selectedDate.value = date
   editing.value = record
+  formType.value = record?.recordType ?? recordType
   fromDetail.value = originDetail
   sheet.value = 'form'
 }
@@ -168,8 +170,10 @@ function closeForm(): void {
 
 async function commit(input: RecordInput, existing?: LocalRecord): Promise<void> {
   await saveRecord(input, existing)
-  lastLocation.value = input.location
-  await setMeta('lastLocation', input.location)
+  if (input.location) {
+    lastLocation.value = input.location
+    await setMeta('lastLocation', input.location)
+  }
   await refresh()
   closeForm()
   notify('已保存到本机，联网后自动同步')
@@ -271,13 +275,6 @@ onUnmounted(() => {
   </div>
 
   <main v-else class="app-shell">
-    <header class="topbar">
-      <h1>工时记录</h1>
-      <button class="icon-button" type="button" aria-label="设置" @click="sheet = 'settings'">
-        <MoreVertical :size="22" />
-      </button>
-    </header>
-
     <div class="month-nav">
       <button class="icon-button" type="button" aria-label="上个月" @click="changeMonth(-1)">
         <ChevronLeft :size="23" />
@@ -288,13 +285,23 @@ onUnmounted(() => {
       <button class="icon-button" type="button" aria-label="下个月" @click="changeMonth(1)">
         <ChevronRight :size="23" />
       </button>
+      <button class="icon-button nav-settings" type="button" aria-label="设置" @click="sheet = 'settings'">
+        <MoreVertical :size="22" />
+      </button>
     </div>
 
     <section class="summary-card">
       <div class="summary-label">本月累计</div>
       <strong>{{ formatHours(summary.totalMinutes) }}</strong>
+      <div class="summary-breakdown"><span>值班 {{ formatHours(summary.dutyMinutes) }}</span><span>加班 {{ formatHours(summary.overtimeMinutes) }}</span></div>
       <div class="summary-days">已记录 {{ summary.workedDays }} 天</div>
     </section>
+
+    <div class="legend">
+      <span><i class="swatch art"></i>艺术中心</span>
+      <span><i class="swatch sutuo"></i>素拓</span>
+      <span><i class="swatch overtime"></i>独立加班</span>
+    </div>
 
     <CalendarMonth
       :year="view.year"
@@ -304,18 +311,16 @@ onUnmounted(() => {
       @select="openDetail"
     />
 
-    <div class="legend">
-      <span><i class="swatch art"></i>艺术中心</span>
-      <span><i class="swatch sutuo"></i>素拓</span>
-    </div>
-
     <p class="sync-note" role="status">
       <span class="status-dot" :class="state.phase"></span>{{ syncLabel }}
     </p>
 
-    <div class="bottom-action">
+    <div class="bottom-action record-actions">
       <button class="primary-button" type="button" @click="openForm(localDate(new Date()))">
-        <Plus :size="20" /> 记录工时
+        <Plus :size="20" /> 值班记录
+      </button>
+      <button class="primary-button overtime-button" type="button" @click="openForm(localDate(new Date()), undefined, false, 'overtime')">
+        <Plus :size="20" /> 加班记录
       </button>
     </div>
 
@@ -324,7 +329,7 @@ onUnmounted(() => {
       :date="selectedDate"
       :records="dayRecords"
       @close="sheet = null"
-      @add="date => openForm(date, undefined, true)"
+      @add="(date, type) => openForm(date, undefined, true, type)"
       @edit="record => openForm(record.workDate, record, true)"
     />
 
@@ -342,7 +347,8 @@ onUnmounted(() => {
 
     <RecordForm
       v-if="sheet === 'form'"
-      :key="editing?.id ?? `new-${selectedDate}`"
+      :key="editing?.id ?? `new-${selectedDate}-${formType}`"
+      :record-type="formType"
       :date="selectedDate"
       :record="editing"
       :last-location="lastLocation"

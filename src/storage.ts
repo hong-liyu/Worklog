@@ -1,8 +1,8 @@
 import Dexie, { type Table } from 'dexie'
-import { validateInput, type RecordInput, type WorkRecord } from './domain'
+import { normalizeRecord, validateInput, type RecordInput, type WorkRecord } from './domain'
 
 export const DB_NAME = 'worklog'
-export const DB_VERSION = 10
+export const DB_VERSION = 11
 
 /** 本地记录额外带 dirty 标记：1 表示还有未确认的本地修改。 */
 export type LocalRecord = WorkRecord & { dirty: 0 | 1 }
@@ -36,11 +36,17 @@ class WorklogDB extends Dexie {
     super(DB_NAME)
     // 版本号从 10 起，是为了跳过早期原型（v1–v4）的表结构；
     // 旧库里未声明的表会在升级时被删除，记录本身结构兼容。
-    this.version(DB_VERSION).stores({
+    this.version(10).stores({
       records: 'id, workDate, location, dirty',
       ops: 'recordId, opId, createdAt',
       meta: 'key'
     })
+    this.version(DB_VERSION).stores({
+      records: 'id, workDate, location, dirty', ops: 'recordId, opId, createdAt', meta: 'key'
+    }).upgrade(transaction => transaction.table('records').toCollection().modify(record => {
+      record.recordType ??= 'duty'
+      record.workContent ??= null
+    }))
   }
 }
 
@@ -60,11 +66,13 @@ export const getOp = (recordId: string): Promise<PendingOp | undefined> => db.op
 
 export async function saveRecord(input: RecordInput, existing?: LocalRecord): Promise<LocalRecord> {
   validateInput(input)
+  if (existing && (input.recordType ?? 'duty') !== existing.recordType) throw new Error('不能修改记录类型')
+  const normalized = normalizeRecord(input)
   const now = new Date().toISOString()
   const record: LocalRecord = existing
-    ? { ...existing, ...input, updatedAt: now, deletedAt: null, dirty: 1 }
+    ? { ...existing, ...normalized, updatedAt: now, deletedAt: null, dirty: 1 }
     : {
-        ...input,
+        ...normalized,
         id: crypto.randomUUID(),
         createdAt: now,
         updatedAt: now,
@@ -124,7 +132,7 @@ export async function applyOperationSuccess(op: PendingOp, wire: WorkRecord): Pr
       await db.records.delete(wire.id)
       return
     }
-    await db.records.put({ ...wire, dirty: isLatest ? 0 : 1 })
+    await db.records.put({ ...normalizeRecord(wire), dirty: isLatest ? 0 : 1 })
   })
 }
 
@@ -160,7 +168,7 @@ export async function mergeServerRecords(records: WorkRecord[]): Promise<void> {
     for (const record of records) {
       if (await db.ops.get(record.id)) continue
       if (record.deletedAt) await db.records.delete(record.id)
-      else await db.records.put({ ...record, dirty: 0 })
+      else await db.records.put({ ...normalizeRecord(record), dirty: 0 })
     }
   })
 }
@@ -171,7 +179,7 @@ export async function replaceAllRecords(records: WorkRecord[]): Promise<void> {
     await db.ops.clear()
     for (const record of records) {
       if (record.deletedAt) continue
-      await db.records.put({ ...record, dirty: 0 })
+      await db.records.put({ ...normalizeRecord(record), dirty: 0 })
     }
   })
 }
@@ -182,7 +190,7 @@ export async function importRecords(records: WorkRecord[]): Promise<number> {
     for (const record of records) {
       if (await db.records.get(record.id)) continue
       const now = new Date().toISOString()
-      await db.records.put({ ...record, revision: 0, deletedAt: null, updatedAt: now, dirty: 1 })
+      await db.records.put({ ...normalizeRecord(record), revision: 0, deletedAt: null, updatedAt: now, dirty: 1 })
       await db.ops.put({
         recordId: record.id,
         opId: crypto.randomUUID(),

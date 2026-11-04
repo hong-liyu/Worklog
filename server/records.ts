@@ -4,7 +4,9 @@ import type { Operation, OperationStatus, RecordPayload } from './validate'
 export interface WireRecord {
   id: string
   workDate: string
-  location: string
+  recordType: 'duty' | 'overtime'
+  workContent: string | null
+  location: string | null
   startTime: string
   baseMinutes: number
   overtimeMinutes: number
@@ -18,7 +20,9 @@ export interface WireRecord {
 interface StoredRow {
   id: string
   work_date: string
-  location: string
+  record_type: 'duty' | 'overtime'
+  work_content: string | null
+  location: string | null
   start_time: string
   base_minutes: number
   overtime_minutes: number
@@ -47,6 +51,8 @@ function toWire(row: StoredRow): WireRecord {
   return {
     id: row.id,
     workDate: row.work_date,
+    recordType: row.record_type,
+    workContent: row.work_content,
     location: row.location,
     startTime: row.start_time,
     baseMinutes: row.base_minutes,
@@ -117,14 +123,16 @@ async function applyCreate(db: D1Database, userId: string, op: Operation) {
   const inserted = await db
     .prepare(
       `INSERT INTO work_records
-         (id, user_id, work_date, location, start_time, base_minutes, overtime_minutes, timezone, created_at, updated_at, revision, deleted_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, NULL)
+         (id, user_id, work_date, record_type, work_content, location, start_time, base_minutes, overtime_minutes, timezone, created_at, updated_at, revision, deleted_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, NULL)
        ON CONFLICT(id) DO NOTHING`
     )
     .bind(
       record.id,
       userId,
       record.workDate,
+      record.recordType,
+      record.workContent,
       record.location,
       record.startTime,
       record.baseMinutes,
@@ -151,17 +159,20 @@ async function applyUpdate(db: D1Database, userId: string, op: Operation) {
   const before = await selectOne(db, userId, op.recordId)
   if (!before) return failure(op.opId, 'validation_error', 'RECORD_NOT_FOUND')
   if (before.deleted_at) return failure(op.opId, 'validation_error', 'RECORD_DELETED')
+  if (before.record_type !== record.recordType) return failure(op.opId, 'validation_error', 'RECORD_TYPE_IMMUTABLE')
 
   const now = new Date().toISOString()
   const updated = await db
     .prepare(
       `UPDATE work_records
-          SET work_date = ?, location = ?, start_time = ?, base_minutes = ?, overtime_minutes = ?,
+          SET work_date = ?, record_type = ?, work_content = ?, location = ?, start_time = ?, base_minutes = ?, overtime_minutes = ?,
               timezone = ?, updated_at = ?, revision = revision + 1
         WHERE id = ? AND user_id = ? AND revision = ? AND deleted_at IS NULL`
     )
     .bind(
       record.workDate,
+      record.recordType,
+      record.workContent,
       record.location,
       record.startTime,
       record.baseMinutes,

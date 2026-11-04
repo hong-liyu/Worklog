@@ -86,6 +86,7 @@ describe('同步流程', () => {
 
   it('拉取到远端变更后写入本地并推进游标', async () => {
     const remote: WorkRecord = {
+      recordType: 'duty', workContent: null,
       id: crypto.randomUUID(),
       workDate: '2026-11-06',
       location: 'sutuo',
@@ -132,5 +133,44 @@ describe('同步流程', () => {
     const state = await syncNow()
     expect(state.phase).toBe('failed')
     expect(await pendingOps()).toHaveLength(1)
+  })
+
+  it('离线攒下的操作会拆成多个小批次，避免撞上 Workers 的子请求上限', async () => {
+    for (let index = 1; index <= 15; index += 1) {
+      await saveRecord({ ...input, workDate: `2026-11-${String(index).padStart(2, '0')}` })
+    }
+
+    const batchSizes: number[] = []
+    stubFetch(async (url, init) => {
+      if (!url.includes('/sync/operations')) {
+        return Response.json({ cursor: 0, hasMore: false, changes: [] })
+      }
+      const body = JSON.parse(String(init?.body)) as {
+        operations: { opId: string; record: Record<string, unknown> }[]
+      }
+      batchSizes.push(body.operations.length)
+      return Response.json({
+        cursor: 1,
+        results: body.operations.map(operation => ({
+          opId: operation.opId,
+          status: 'success',
+          revision: 1,
+          record: {
+            ...operation.record,
+            createdAt: '2026-11-03T00:00:00.000Z',
+            updatedAt: '2026-11-03T00:00:00.000Z',
+            revision: 1,
+            deletedAt: null
+          }
+        }))
+      })
+    })
+
+    const state = await syncNow()
+    expect(state.phase).toBe('synced')
+    expect(batchSizes.reduce((sum, size) => sum + size, 0)).toBe(15)
+    expect(batchSizes.every(size => size <= 6)).toBe(true)
+    expect(batchSizes.length).toBeGreaterThanOrEqual(3)
+    expect(await pendingOps()).toHaveLength(0)
   })
 })

@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs'
+import { readFileSync, readdirSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import type { D1Database, D1PreparedStatement, D1Result } from './types'
@@ -11,6 +11,11 @@ export function createTestDatabase(schemaPath = resolve('migrations/0001_init.sq
   const database = new DatabaseSync(':memory:')
   database.exec('PRAGMA foreign_keys = ON')
   database.exec(readFileSync(schemaPath, 'utf8'))
+  if (schemaPath === resolve('migrations/0001_init.sql')) {
+    for (const file of readdirSync(resolve('migrations')).filter(name => name.endsWith('.sql') && name !== '0001_init.sql').sort()) {
+      database.exec(readFileSync(resolve('migrations', file), 'utf8'))
+    }
+  }
 
   const prepare = (sql: string): D1PreparedStatement => {
     let params: never[] = []

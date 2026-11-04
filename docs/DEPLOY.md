@@ -63,3 +63,66 @@ Pages 目前仍是维护状态，Cloudflare 新特性优先给 Workers。本项�
 3. `npx wrangler deploy`。
 
 顺带能加 Cron Trigger 做定时备份（Pages Functions 不支持 Cron）。
+
+## 日常改动流程
+
+```bash
+npm run dev          # 改代码，5173 热更新
+npm test             # 逻辑改动必跑（时间计算 / 统计 / 同步）
+npm run deploy       # 自动执行 test + build + 上传
+npm run deploy:quick # 只改样式文案时用，跳过测试
+```
+
+部署用的是直接上传（Direct Upload），`git push` 不会自动上线，必须手动 deploy。
+
+手机端入口是项目域名 `https://<project>.pages.dev`，不要用 `wrangler` 输出里带 hash 的单次部署别名（证书不覆盖，会报「不受支持的协议」）。
+
+应用更新走 Service Worker 的 prompt 模式：打开后顶部出现「有新版本可用」，点重新加载才切换；更新不会清空 IndexedDB 里的本地数据。看不到提示就从最近任务里彻底关掉再开。
+
+## 改动数据库结构
+
+1. 先导出备份：`npx wrangler d1 export worklog --remote --output=before.sql`
+2. 新增 `migrations/0002_xxx.sql`，不要改已应用过的文件
+3. `npm run db:migrate:local` 和 `npm run db:migrate:remote`
+4. 顺序优先选向后兼容：先加表/加列 → 部署兼容代码 → 确认无误后再清理旧结构
+5. SQLite 只支持有限 ALTER：加列可以，删列/改类型要新建表再搬数据
+## 多人使用
+
+一个人一套账号，数据按 `user_id` 隔离。添加用户有两种方式。
+
+单个：
+
+```bash
+node scripts/create-user.ts --remote --username zhangsan
+```
+
+批量：把名单写进 `.tmp/users.csv`（该目录已在 `.gitignore`，不会提交），每行 `用户名,密码`，支持 `#` 注释：
+
+```csv
+# 同事
+zhangsan,his-password-123
+lisi,her-password-456
+```
+
+```bash
+npm run users:bulk -- --remote --file .tmp/users.csv
+```
+
+- 用户名只允许字母、数字、`_`、`.`、`-`，1–64 位；密码至少 8 位。
+- 用户名已存在时**重置密码**，不会重复创建，也不动已有记录。
+- 整份名单在一次 D1 执行里写入，任何一行不合法就整体不生效。
+- 脚本不回显密码，按你自己那份名单分发即可。
+
+每个用户在各自设备上打开同一个网址登录，看到的只有自己的数据。注意：同一台手机切换账号时，退出登录会清空本机缓存，重登需要重新拉一次全量数据。
+## 独立加班版本升级（2026-11-04）
+
+此次新增 `migrations/0002_standalone_overtime.sql`，不要重置数据库或修改已应用的 `0001_init.sql`。
+
+1. 先导出远端数据库备份，妥善保管其中的账号和记录数据。
+2. 本地验证新迁移和应用后，执行 `npm run db:migrate:remote` 应用新迁移。
+3. 再执行 `npm run deploy` 部署前后端。此次功能开发没有代为执行远端迁移或线上发布。
+4. 各设备在更新提示中点「重新加载」，更新后再新增、编辑独立加班记录。
+
+迁移会重建记录表以调整校验约束，并复制旧记录，原有 ID、版本号和删除状态不变；变更日志、操作回执、用户与会话不动。旧记录统一标为值班。浏览器本地升级同样保留未同步操作和同步游标。
+
+迁移先行后，原有值班载荷仍可提交；旧版界面无法正确展示独立加班，不应在旧版设备上操作新类型记录。

@@ -9,6 +9,8 @@
 - 同步：本地优先 + 操作队列 + `opId` 幂等 + `revision` 乐观锁 + `seq` 增量游标。
 - 形态：PWA，可添加到 Android 桌面，离线可用。
 
+现已支持独立加班（填写工作内容与时长），日期和时间使用应用内选择面板；升级时先迁移数据库，再部署应用，详见部署文档。
+
 需求基准见 [`design.md`](design.md)（v1.1，替代 v1.0 的部署与后端章节）。
 
 ## 目录
@@ -57,7 +59,7 @@ npm run dev         # vite，http://127.0.0.1:5173（/api 已代理到 8788）
 ## 检查
 
 ```bash
-npm test         # 70 个测试：时间计算、日历着色、统计、CSV、队列、同步、API、幂等、冲突、鉴权
+npm test         # 82 个测试：时间计算、日历着色、统计、CSV、队列、同步、API、幂等、冲突、鉴权
 npm run typecheck
 npm run build    # 产出 dist/（含 sw.js 与 manifest）
 ```

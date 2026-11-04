@@ -17,6 +17,8 @@ import {
 
 const make = (partial: Partial<WorkRecord> = {}): WorkRecord => ({
   id: crypto.randomUUID(),
+  recordType: 'duty',
+  workContent: null,
   workDate: '2026-11-03',
   location: 'art_center',
   startTime: '16:00',
@@ -152,7 +154,7 @@ describe('月度统计', () => {
       make({ startTime: '09:00', baseMinutes: 180 }),
       make({ location: 'sutuo', startTime: '18:00', baseMinutes: 180 })
     ]
-    expect(monthlySummary(records, '2026-11')).toEqual({ totalMinutes: 510, workedDays: 1 })
+    expect(monthlySummary(records, '2026-11')).toEqual({ totalMinutes: 510, workedDays: 1, dutyMinutes: 480, overtimeMinutes: 30 })
   })
 
   it('按 workDate 归属月份，跨月与跨年不串月', () => {
@@ -162,24 +164,24 @@ describe('月度统计', () => {
       make({ workDate: '2026-12-01' }),
       make({ workDate: '2027-01-01' })
     ]
-    expect(monthlySummary(records, '2026-10')).toEqual({ totalMinutes: 120, workedDays: 1 })
-    expect(monthlySummary(records, '2026-11')).toEqual({ totalMinutes: 120, workedDays: 1 })
-    expect(monthlySummary(records, '2027-01')).toEqual({ totalMinutes: 120, workedDays: 1 })
+    expect(monthlySummary(records, '2026-10')).toEqual({ totalMinutes: 120, workedDays: 1, dutyMinutes: 120, overtimeMinutes: 0 })
+    expect(monthlySummary(records, '2026-11')).toEqual({ totalMinutes: 120, workedDays: 1, dutyMinutes: 120, overtimeMinutes: 0 })
+    expect(monthlySummary(records, '2027-01')).toEqual({ totalMinutes: 120, workedDays: 1, dutyMinutes: 120, overtimeMinutes: 0 })
   })
 
   it('删除的记录不计入统计', () => {
     const records = [make(), { ...make({ workDate: '2026-11-04' }), deletedAt: 'now' }]
-    expect(monthlySummary(records, '2026-11')).toEqual({ totalMinutes: 120, workedDays: 1 })
+    expect(monthlySummary(records, '2026-11')).toEqual({ totalMinutes: 120, workedDays: 1, dutyMinutes: 120, overtimeMinutes: 0 })
   })
 
   it('空月份返回零值', () => {
-    expect(monthlySummary([], '2026-11')).toEqual({ totalMinutes: 0, workedDays: 0 })
+    expect(monthlySummary([], '2026-11')).toEqual({ totalMinutes: 0, workedDays: 0, dutyMinutes: 0, overtimeMinutes: 0 })
   })
 
   it('跨午夜记录仍归属开始日期', () => {
     const record = make({ workDate: '2026-11-30', startTime: '23:00', baseMinutes: 180 })
-    expect(monthlySummary([record], '2026-11')).toEqual({ totalMinutes: 180, workedDays: 1 })
-    expect(monthlySummary([record], '2026-12')).toEqual({ totalMinutes: 0, workedDays: 0 })
+    expect(monthlySummary([record], '2026-11')).toEqual({ totalMinutes: 180, workedDays: 1, dutyMinutes: 180, overtimeMinutes: 0 })
+    expect(monthlySummary([record], '2026-12')).toEqual({ totalMinutes: 0, workedDays: 0, dutyMinutes: 0, overtimeMinutes: 0 })
   })
 })
 
