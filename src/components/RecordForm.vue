@@ -32,7 +32,7 @@ const form = reactive({
   location: props.record?.location ?? props.lastLocation,
   workContent: props.record?.workContent ?? '',
   startTime: start,
-  baseMinutes: (props.record?.baseMinutes ?? (standalone ? 0 : 120)) as 0 | 120 | 180,
+  baseMinutes: (props.record?.baseMinutes ?? (standalone ? 0 : 120)) as 0 | 90 | 120 | 150 | 180,
   overtime: props.record ? String(Number((props.record.overtimeMinutes / 60).toFixed(2))) : (standalone ? '1' : '0'),
   endTime: endTime(start, props.record?.baseMinutes ?? (standalone ? 0 : 120), props.record?.overtimeMinutes ?? (standalone ? 60 : 0)).time
 })
@@ -216,15 +216,15 @@ function onTouchEnd(event: TouchEvent): void {
 
         <template v-if="!standalone">
         <div class="field-label">基础工时</div>
-        <div class="segments">
+        <div class="segments base-hours">
           <button
-            v-for="minutes in ([120, 180] as const)"
+            v-for="minutes in ([90, 120, 150, 180] as const)"
             :key="minutes"
             type="button"
             :class="{ active: form.baseMinutes === minutes }"
             @click="form.baseMinutes = minutes; recalculate()"
           >
-            {{ minutes / 60 }} 小时
+            {{ minutes / 60 }}h
           </button>
         </div>
 

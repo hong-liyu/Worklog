@@ -18,7 +18,7 @@ export interface RecordPayload {
   workContent: string | null
   location: WorkLocation | null
   startTime: string
-  baseMinutes: 0 | 120 | 180
+  baseMinutes: 0 | 90 | 120 | 150 | 180
   overtimeMinutes: number
   timezone: string
 }
@@ -71,7 +71,7 @@ export function parseRecord(value: unknown): RecordPayload {
   if (typeof startTime !== 'string' || !TIME_RE.test(startTime)) invalid('开始时间无效')
 
   const baseMinutes = raw.baseMinutes
-  if (recordType === 'duty' ? baseMinutes !== 120 && baseMinutes !== 180 : baseMinutes !== 0) invalid('基础工时无效')
+  if (recordType === 'duty' ? ![90, 120, 150, 180].includes(baseMinutes as number) : baseMinutes !== 0) invalid('基础工时无效')
 
   const overtimeMinutes = raw.overtimeMinutes
   if (
@@ -86,7 +86,7 @@ export function parseRecord(value: unknown): RecordPayload {
   const timezone = raw.timezone
   if (typeof timezone !== 'string' || !TIMEZONE_RE.test(timezone)) invalid('时区无效')
 
-  return { id, workDate, recordType, workContent, location: location as WorkLocation | null, startTime, baseMinutes: baseMinutes as 0 | 120 | 180, overtimeMinutes, timezone }
+  return { id, workDate, recordType, workContent, location: location as WorkLocation | null, startTime, baseMinutes: baseMinutes as 0 | 90 | 120 | 150 | 180, overtimeMinutes, timezone }
 }
 
 export function parseOperations(value: unknown): Operation[] {

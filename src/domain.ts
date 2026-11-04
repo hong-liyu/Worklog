@@ -11,7 +11,7 @@ export interface WorkRecord {
   workContent: string | null
   location: WorkLocation | null
   startTime: string
-  baseMinutes: 0 | 120 | 180
+  baseMinutes: 0 | 90 | 120 | 150 | 180
   overtimeMinutes: number
   timezone: string
   createdAt: string
@@ -87,7 +87,7 @@ export function validateInput(input: RecordInput): void {
   if (type !== 'duty' && type !== 'overtime') throw new Error('记录类型无效')
   if (type === 'duty') {
     if (input.location !== 'art_center' && input.location !== 'sutuo') throw new Error('工作地点无效')
-    if (input.baseMinutes !== 120 && input.baseMinutes !== 180) throw new Error('基础工时无效')
+    if (![90, 120, 150, 180].includes(input.baseMinutes)) throw new Error('基础工时无效')
     if (input.workContent != null) throw new Error('值班记录不需要工作内容')
   } else {
     if (input.location !== null || input.baseMinutes !== 0) throw new Error('独立加班不包含地点或基础工时')
@@ -109,6 +109,14 @@ export function validateInput(input: RecordInput): void {
 
 export function formatHours(minutes: number): string {
   return `${Number((minutes / 60).toFixed(2))}h`
+}
+
+export const HOURLY_RATE = 25
+
+/** Sum integer minutes first, then round the monthly pay to cents. */
+export function formatSalary(totalMinutes: number): string {
+  const cents = Math.round(totalMinutes * HOURLY_RATE * 100 / 60)
+  return `￥${(cents / 100).toFixed(2)}`
 }
 
 /** 跨午夜时给出完整日期，避免 CSV 里出现两个相同的 HH:mm。 */

@@ -23,6 +23,7 @@ async function submit(): Promise<void> {
     const response = await login(username.value.trim(), password.value)
     if (response.ok) {
       await setMeta('lastLoginAt', new Date().toISOString())
+      await setMeta('username', username.value.trim())
       emit('success')
       return
     }

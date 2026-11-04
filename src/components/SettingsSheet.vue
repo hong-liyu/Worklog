@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import { CloudDownload, LogOut, RotateCw, RefreshCw, X } from '@lucide/vue'
 
-defineProps<{ syncLabel: string; pending: number; busy: boolean }>()
-const emit = defineEmits<{ close: []; exportCsv: []; sync: []; rebuild: []; logout: [] }>()
+defineProps<{ syncLabel: string; diagnosticReport: string; diagnosticMessage: string; pending: number; busy: boolean }>()
+const emit = defineEmits<{ close: []; exportCsv: []; copyDiagnostics: []; downloadDiagnostics: []; sync: []; rebuild: []; logout: [] }>()
 </script>
 
 <template>
@@ -32,6 +32,16 @@ const emit = defineEmits<{ close: []; exportCsv: []; sync: []; rebuild: []; logo
         <button class="settings-row danger" type="button" @click="emit('logout')">
           <LogOut :size="19" /><span>退出登录</span>
         </button>
+
+        <details class="sync-diagnostics" :open="!!diagnosticMessage">
+          <summary>同步诊断（提供给管理员）</summary>
+          <p v-if="diagnosticMessage" class="form-error" role="alert">{{ diagnosticMessage }}</p>
+          <textarea class="diagnostic-report" aria-label="同步诊断报告" :value="diagnosticReport" readonly rows="8"></textarea>
+          <div class="segments">
+            <button type="button" @click="emit('copyDiagnostics')">复制诊断</button>
+            <button type="button" @click="emit('downloadDiagnostics')">下载诊断</button>
+          </div>
+        </details>
 
         <p class="settings-note">
           「从云端重建」会清空本机缓存，用于数据对不上或换设备时重新拉取。本机尚未同步的修改会先被提示。

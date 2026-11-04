@@ -2,6 +2,7 @@ import 'fake-indexeddb/auto'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { RecordInput, WorkRecord } from './domain'
 import { allRecords, db, pendingOps, saveRecord } from './storage'
+import { syncDiagnosticReport } from './diagnostics'
 import { syncNow } from './sync'
 
 const input: RecordInput = {
@@ -172,5 +173,64 @@ describe('同步流程', () => {
     expect(batchSizes.every(size => size <= 6)).toBe(true)
     expect(batchSizes.length).toBeGreaterThanOrEqual(3)
     expect(await pendingOps()).toHaveLength(0)
+  })
+})
+
+describe('同步诊断与失败数据保留', () => {
+  it.each([400,403,500,503])('HTTP %i 保存上传环节和请求编号，保留本机记录与队列', async status => {
+    await saveRecord(input)
+    stubFetch(async () => Response.json({error:{code:'TEST_ERROR',message:'诊断测试'}},{status,headers:{'x-request-id':'request-test','cf-ray':'ray-test','x-worklog-api':'sync-diagnostics-1'}}))
+    const state = await syncNow()
+    expect(state.phase).toBe('failed')
+    expect(state.diagnostic).toMatchObject({stage:'push',status,code:'TEST_ERROR',requestId:'request-test',cfRay:'ray-test',serverApi:'sync-diagnostics-1'})
+    expect(await pendingOps()).toHaveLength(1)
+    expect((await allRecords())[0].dirty).toBe(1)
+    expect((await db.meta.get('lastSyncError'))?.value).toMatchObject({stage:'push',status})
+  })
+  it('逐操作拒绝不再丢弃队列或误报已同步', async () => {
+    await saveRecord(input)
+    stubFetch(async (_url, init) => Response.json({results:[{opId:opIds(init)[0],status:'validation_error',errorCode:'RECORD_TYPE_IMMUTABLE'}]}))
+    const state = await syncNow()
+    expect(state).toMatchObject({phase:'failed',pending:1,diagnostic:{stage:'push',code:'RECORD_TYPE_IMMUTABLE'}})
+    expect((await pendingOps())[0]).toMatchObject({lastError:'RECORD_TYPE_IMMUTABLE',attempts:1})
+    expect((await allRecords())[0].dirty).toBe(1)
+  })
+  it('响应缺少操作回执时保留队列并明确报错', async () => {
+    await saveRecord(input)
+    stubFetch(async () => Response.json({results:[]}))
+    expect(await syncNow()).toMatchObject({phase:'failed',pending:1,diagnostic:{code:'INCOMPLETE_RESPONSE'}})
+  })
+  it('上传成功、下载失败时准确标记下载环节', async () => {
+    const record = await saveRecord(input)
+    stubFetch(async (url, init) => url.includes('/sync/operations')
+      ? Response.json({results:[{opId:opIds(init)[0],status:'success',record:{...record,revision:1}}]})
+      : Response.json({error:{code:'INTERNAL',message:'服务器内部错误'}},{status:500,headers:{'x-request-id':'pull-request'}}))
+    expect(await syncNow()).toMatchObject({phase:'failed',pending:0,diagnostic:{stage:'pull',requestId:'pull-request',status:500}})
+    expect(await allRecords()).toHaveLength(1)
+  })
+  it('识别网络超时及非预期HTML响应', async () => {
+    await saveRecord(input)
+    stubFetch(async () => {throw new DOMException('aborted','AbortError')})
+    expect(await syncNow()).toMatchObject({diagnostic:{stage:'push',code:'TIMEOUT'}})
+    stubFetch(async () => new Response('<html>proxy</html>',{headers:{'content-type':'text/html'}}))
+    expect(await syncNow()).toMatchObject({diagnostic:{stage:'push',code:'UNEXPECTED_RESPONSE'}})
+    expect(await pendingOps()).toHaveLength(1)
+  })
+  it('可复制诊断不包含工作内容、Cookie或密码，成功后清除当前错误', async () => {
+    await saveRecord({...input,recordType:'overtime',location:null,baseMinutes:0,workContent:'机密工作内容',overtimeMinutes:60})
+    await db.meta.put({key:'cookie',value:'secret-cookie'})
+    await db.meta.put({key:'password',value:'secret-password'})
+    stubFetch(async () => Response.json({error:{code:'INTERNAL',message:'机密服务端错误内容'}},{status:500,headers:{'x-request-id':'safe-request'}}))
+    await syncNow()
+    const report = await syncDiagnosticReport()
+    expect(report).toContain('safe-request')
+    expect(report).toContain('待上传操作数：1')
+    expect(report).not.toMatch(/机密工作内容|secret-cookie|secret-password|机密服务端错误内容/)
+    const record = (await allRecords())[0]
+    stubFetch(async (url,init) => url.includes('/sync/operations')
+      ? Response.json({results:[{opId:opIds(init)[0],status:'success',record:{...record,revision:1}}]})
+      : Response.json({cursor:1,hasMore:false,changes:[]}))
+    expect((await syncNow()).phase).toBe('synced')
+    expect((await db.meta.get('lastSyncError'))?.value).toBeNull()
   })
 })

@@ -151,14 +151,12 @@ export async function rebaseOperation(op: PendingOp, baseRevision: number): Prom
   })
 }
 
-/** 服务器明确拒绝（校验失败、记录不存在）：丢弃操作，避免队列永久卡死。 */
-export async function dropOperation(op: PendingOp, reason: string): Promise<void> {
-  await db.transaction('rw', db.records, db.ops, async () => {
+/** Rejected writes remain queued until corrected or explicitly deleted by the user. */
+export async function markOperationFailure(op: PendingOp, reason: string): Promise<void> {
+  await db.transaction('rw', db.ops, async () => {
     const current = await db.ops.get(op.recordId)
     if (!current || current.opId !== op.opId) return
-    await db.ops.delete(op.recordId)
-    await db.records.update(op.recordId, { dirty: 0 })
-    await setMeta('lastDroppedOp', { at: new Date().toISOString(), reason, recordId: op.recordId })
+    await db.ops.update(op.recordId, { attempts: current.attempts + 1, lastError: reason })
   })
 }
 

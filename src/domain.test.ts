@@ -6,6 +6,7 @@ import {
   endTime,
   endTimestamp,
   formatHours,
+  formatSalary,
   monthCells,
   monthlySummary,
   overtimeFromEnd,
@@ -236,5 +237,31 @@ describe('CSV 导出', () => {
   it('跨午夜记录的结束时间写成完整时间戳', () => {
     const csv = toCSV([make({ workDate: '2026-11-03', startTime: '23:00', baseMinutes: 180 })])
     expect(csv).toContain('2026-11-04 02:00')
+  })
+})
+
+describe('基础工时新选项', () => {
+  it.each([[90, '17:30'], [120, '18:00'], [150, '18:30']] as const)('%i 分钟可以保存且与结束时间双向联动', (baseMinutes, expectedEnd) => {
+    const record = make({baseMinutes, overtimeMinutes:0})
+    expect(() => validateInput(record)).not.toThrow()
+    expect(endTime(record.startTime, baseMinutes, 0).time).toBe(expectedEnd)
+    const withOvertime = endTime(record.startTime, baseMinutes, 30)
+    expect(overtimeFromEnd(record.startTime, withOvertime.time, baseMinutes)).toBe(30)
+    expect(toCSV([record])).toContain(`"${baseMinutes / 60}","0","${baseMinutes / 60}"`)
+  })
+  it('1h 基础工时无效，历史3h仍有效', () => {
+    expect(() => validateInput({...make(), baseMinutes:60} as never)).toThrow()
+    expect(() => validateInput(make({baseMinutes:180}))).not.toThrow()
+  })
+})
+
+describe('月度工资', () => {
+  it.each([[0,'￥0.00'],[1,'￥0.42'],[90,'￥37.50'],[120,'￥50.00'],[150,'￥62.50'],[180,'￥75.00'],[210,'￥87.50']])('%i 分钟按25元时薪显示%s', (minutes, expected) => {
+    expect(formatSalary(minutes as number)).toBe(expected)
+  })
+  it('汇总基础、附加加班和独立加班，合计后再按分取整', () => {
+    const records = [make({baseMinutes:120,overtimeMinutes:30}), make({recordType:'overtime',location:null,workContent:'整理资料',baseMinutes:0,overtimeMinutes:60})]
+    expect(formatSalary(monthlySummary(records,'2026-11').totalMinutes)).toBe('￥87.50')
+    expect(formatSalary(1+1+1)).toBe('￥1.25')
   })
 })

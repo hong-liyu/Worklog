@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { VERSION, handle } from './app'
 import { deriveAuthHash, hashPassword, randomSalt } from './password'
 import { createTestDatabase } from './testing'
@@ -372,5 +372,35 @@ describe('同步写入与幂等', () => {
     const body = (await response.json()) as { cursor: number; records: RecordPayload[] }
     expect(body.records).toHaveLength(1)
     expect(body.cursor).toBe(1)
+  })
+})
+
+describe('同步服务诊断', () => {
+  it('成功和失败响应均提供请求编号', async () => {
+    const health = await handle(request('/health'),env)
+    expect(health.headers.get('x-request-id')).toBeTruthy()
+    expect(health.headers.get('x-worklog-api')).toBe('sync-diagnostics-1')
+    const denied = await handle(request('/sync'),env)
+    expect(denied.status).toBe(401)
+    expect(denied.headers.get('x-request-id')).toBeTruthy()
+    expect(denied.headers.get('x-request-id')).not.toBe(health.headers.get('x-request-id'))
+  })
+  it('识别缺少迁移的写入错误，日志可按请求编号关联且不记录凭据', async () => {
+    const cookie = await loginCookie()
+    const logger = vi.spyOn(console,'error').mockImplementation(()=>{})
+    try {
+      const broken = {...db, prepare(sql:string) {
+        if(sql.includes('INSERT INTO work_records')) throw new Error('D1_ERROR: table work_records has no column named record_type')
+        return db.prepare(sql)
+      }}
+      const response = await handle(request('/sync/operations',{method:'POST',cookie,body:{operations:[{opId:crypto.randomUUID(),type:'create',record:makeRecord()}]}}),{DB:broken})
+      expect(response.status).toBe(503)
+      expect(await response.json()).toMatchObject({error:{code:'DATABASE_SCHEMA_OUTDATED'}})
+      expect(logger).toHaveBeenCalledWith('api_request_failed',expect.objectContaining({requestId:response.headers.get('x-request-id'),userId:'user-1',path:'/sync/operations',code:'DATABASE_SCHEMA_OUTDATED'}))
+      const logs=JSON.stringify(logger.mock.calls)
+      expect(logs).not.toContain(cookie)
+      expect(logs).not.toContain(authHash)
+      expect(logs).not.toContain(PASSWORD)
+    } finally {logger.mockRestore()}
   })
 })

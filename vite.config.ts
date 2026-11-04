@@ -3,6 +3,7 @@ import vue from '@vitejs/plugin-vue'
 import { VitePWA } from 'vite-plugin-pwa'
 
 export default defineConfig({
+  define: { 'import.meta.env.VITE_APP_BUILD': JSON.stringify(new Date().toISOString()) },
   plugins: [
     vue(),
     VitePWA({

@@ -126,3 +126,15 @@ npm run users:bulk -- --remote --file .tmp/users.csv
 迁移会重建记录表以调整校验约束，并复制旧记录，原有 ID、版本号和删除状态不变；变更日志、操作回执、用户与会话不动。旧记录统一标为值班。浏览器本地升级同样保留未同步操作和同步游标。
 
 迁移先行后，原有值班载荷仍可提交；旧版界面无法正确展示独立加班，不应在旧版设备上操作新类型记录。
+
+## 基础工时选项更新
+
+新选项为 1.5h、2h、2.5h，默认 2h。此次新增 `migrations/0003_duty_duration_options.sql`，部署前先执行 `npm run db:migrate:remote`，再执行 `npm run deploy`。单独部署前端而没有迁移数据库，会导致 1.5h / 2.5h 记录无法写入云端。
+
+迁移保留全部现有值班与独立加班记录、原有时长、ID、版本号和删除状态；历史 3h 及旧客户端载荷继续兼容，新建表单仅提供三个新选项。
+
+## 部署前的数据库检查与同步诊断
+
+`npm run deploy` 和 `npm run deploy:quick` 现在都会先只读检查远端数据库迁移状态。缺少迁移时直接停止，不自动升级数据库；按提示执行 `npm run db:migrate:remote` 后再部署。`npm run db:check:remote` 可单独检查。
+
+同步失败时让同学更新页面，在设置中复制/下载同步诊断，按请求编号对应 Pages Functions 日志。完整步骤见 `docs/SYNC_TROUBLESHOOTING.md`。

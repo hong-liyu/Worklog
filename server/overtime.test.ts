@@ -54,3 +54,32 @@ describe('独立加班服务端与迁移', () => {
     } finally { db.close() }
   })
 })
+
+describe('基础工时1.5h/2h/2.5h', () => {
+  it.each([90,120,150])('服务端校验、SQL保存和拉取支持%i分钟', async baseMinutes => {
+    const db = createTestDatabase()
+    await db.prepare("INSERT INTO users VALUES ('user-1','admin','hash','salt','now')").run()
+    const record = {...payload, id:`duty-record-${baseMinutes}`, recordType:'duty', workContent:null, location:'art_center', baseMinutes, overtimeMinutes:30}
+    const operations = parseOperations([{opId:`duty-create-${baseMinutes}`,type:'create',record}])
+    expect((await applyOperations(db,'user-1',operations)).results[0]).toMatchObject({status:'success',record:{baseMinutes,overtimeMinutes:30}})
+    expect((await pull(db,'user-1',0,200)).changes[0].record.baseMinutes).toBe(baseMinutes)
+    expect(() => parseRecord({...record, baseMinutes:60})).toThrow()
+  })
+  it('第三份迁移完整保留历史3h、独立加班及其同步字段', () => {
+    const db = new DatabaseSync(':memory:')
+    try {
+      db.exec('PRAGMA foreign_keys = ON')
+      db.exec(readFileSync('migrations/0001_init.sql','utf8'))
+      db.exec(readFileSync('migrations/0002_standalone_overtime.sql','utf8'))
+      db.exec("INSERT INTO users VALUES ('u','admin','hash','salt','now')")
+      db.exec("INSERT INTO work_records VALUES ('duty','u','2026-11-04','duty',NULL,'art_center','10:00',180,30,'Asia/Shanghai','created','updated',7,'deleted')")
+      db.exec("INSERT INTO work_records VALUES ('overtime','u','2026-11-04','overtime','整理资料',NULL,'10:00',0,60,'Asia/Shanghai','created','updated',9,NULL)")
+      const before = db.prepare('SELECT * FROM work_records ORDER BY id').all()
+      db.exec(readFileSync('migrations/0003_duty_duration_options.sql','utf8'))
+      expect(db.prepare('SELECT * FROM work_records ORDER BY id').all()).toEqual(before)
+      db.exec("UPDATE work_records SET base_minutes=90 WHERE id='duty'")
+      db.exec("UPDATE work_records SET base_minutes=150 WHERE id='duty'")
+      expect(() => db.exec("UPDATE work_records SET base_minutes=60 WHERE id='duty'")).toThrow()
+    } finally { db.close() }
+  })
+})

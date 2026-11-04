@@ -7,8 +7,9 @@ import DaySheet from './components/DaySheet.vue'
 import RecordForm from './components/RecordForm.vue'
 import SettingsSheet from './components/SettingsSheet.vue'
 import LoginView from './views/LoginView.vue'
+import { syncDiagnosticReport } from './diagnostics'
 import { logout, request } from './api'
-import { formatHours, localDate, monthlySummary, toCSV, type RecordInput, type RecordType, type WorkLocation } from './domain'
+import { formatHours, formatSalary, localDate, monthlySummary, toCSV, type RecordInput, type RecordType, type WorkLocation } from './domain'
 import {
   allRecords,
   clearLocalData,
@@ -37,6 +38,8 @@ const fromDetail = ref(false)
 const lastLocation = ref<WorkLocation>('art_center')
 const message = ref('')
 const updateReady = ref(false)
+const diagnosticReport = ref('')
+const diagnosticMessage = ref('')
 const syncing = ref(false)
 const state = ref<SyncState>({ phase: 'idle', pending: 0 })
 
@@ -60,7 +63,7 @@ const syncLabel = computed(() => {
     case 'offline':
       return '离线中，记录已保存在本机'
     case 'failed':
-      return '同步失败，稍后自动重试'
+      return '同步失败，请在设置查看原因'
     case 'conflict':
       return '存在数据冲突，已保留本机修改'
     case 'unauthorized':
@@ -100,6 +103,7 @@ async function synchronize(): Promise<void> {
     syncing.value = false
   }
   await refresh()
+  if (sheet.value === 'settings') await loadDiagnostics()
 
   if (state.value.phase === 'unauthorized') {
     phase.value = 'login'
@@ -132,7 +136,13 @@ async function bootstrap(): Promise<void> {
     response = null
   }
 
-  if (response?.ok) phase.value = 'ready'
+  if (response?.ok) {
+    phase.value = 'ready'
+    try {
+      const body = await response.json() as { user?: { username?: string } }
+      if (body.user?.username) await setMeta('username', body.user.username)
+    } catch { /* Account label is optional for older servers. */ }
+  }
   else if (response && response.status === 401) phase.value = 'login'
   else phase.value = (await getMeta('lastLoginAt')) ? 'ready' : 'login'
 
@@ -199,6 +209,40 @@ function exportCSV(): void {
   window.setTimeout(() => URL.revokeObjectURL(url), 1000)
   sheet.value = null
   notify('CSV 已导出')
+}
+
+async function loadDiagnostics(): Promise<void> {
+  try {
+    diagnosticReport.value = await syncDiagnosticReport()
+    const error = await getMeta<{ message?: string } | null>('lastSyncError')
+    diagnosticMessage.value = error?.message ?? ''
+  } catch {
+    diagnosticMessage.value = '无法读取本机存储，请保留当前浏览器并联系管理员'
+    diagnosticReport.value = `WorkLog 同步诊断\n本机存储无法读取\n浏览器：${navigator.userAgent}`
+  }
+}
+
+async function openSettings(): Promise<void> {
+  sheet.value = 'settings'
+  await loadDiagnostics()
+}
+
+async function copyDiagnostics(): Promise<void> {
+  await loadDiagnostics()
+  try {
+    await navigator.clipboard.writeText(diagnosticReport.value)
+    notify('诊断已复制，可发给管理员')
+  } catch { notify('无法复制，请使用下载诊断') }
+}
+
+async function downloadDiagnostics(): Promise<void> {
+  await loadDiagnostics()
+  const url = URL.createObjectURL(new Blob([diagnosticReport.value], { type: 'text/plain;charset=utf-8' }))
+  const link = document.createElement('a')
+  link.href = url
+  link.download = `worklog-sync-diagnostic-${localDate(new Date())}.txt`
+  link.click()
+  window.setTimeout(() => URL.revokeObjectURL(url), 1000)
 }
 
 async function manualSync(): Promise<void> {
@@ -285,7 +329,7 @@ onUnmounted(() => {
       <button class="icon-button" type="button" aria-label="下个月" @click="changeMonth(1)">
         <ChevronRight :size="23" />
       </button>
-      <button class="icon-button nav-settings" type="button" aria-label="设置" @click="sheet = 'settings'">
+      <button class="icon-button nav-settings" type="button" aria-label="设置" @click="openSettings">
         <MoreVertical :size="22" />
       </button>
     </div>
@@ -294,7 +338,10 @@ onUnmounted(() => {
       <div class="summary-main">
         <div class="summary-label">本月累计</div>
         <strong>{{ formatHours(summary.totalMinutes) }}</strong>
-        <div class="summary-days">已记录 {{ summary.workedDays }} 天</div>
+      </div>
+      <div class="summary-pay">
+        <div class="summary-label">本月工资</div>
+        <strong>{{ formatSalary(summary.totalMinutes) }}</strong>
       </div>
       <div class="summary-breakdown">
         <div class="summary-metric"><span>值班</span><strong>{{ formatHours(summary.dutyMinutes) }}</strong></div>
@@ -333,6 +380,7 @@ onUnmounted(() => {
       v-if="sheet === 'detail'"
       :date="selectedDate"
       :records="dayRecords"
+      :on-delete="remove"
       @close="sheet = null"
       @add="(date, type) => openForm(date, undefined, true, type)"
       @edit="record => openForm(record.workDate, record, true)"
@@ -341,10 +389,14 @@ onUnmounted(() => {
     <SettingsSheet
       v-if="sheet === 'settings'"
       :sync-label="syncLabel"
+      :diagnostic-report="diagnosticReport"
+      :diagnostic-message="diagnosticMessage"
       :pending="state.pending"
       :busy="syncing"
       @close="sheet = null"
       @export-csv="exportCSV"
+      @copy-diagnostics="copyDiagnostics"
+      @download-diagnostics="downloadDiagnostics"
       @sync="manualSync"
       @rebuild="rebuild"
       @logout="handleLogout"

@@ -59,7 +59,7 @@ npm run dev         # vite，http://127.0.0.1:5173（/api 已代理到 8788）
 ## 检查
 
 ```bash
-npm test         # 82 个测试：时间计算、日历着色、统计、CSV、队列、同步、API、幂等、冲突、鉴权
+npm test         # 109 个测试：时间计算、日历着色、统计、CSV、队列、同步、API、幂等、冲突、鉴权
 npm run typecheck
 npm run build    # 产出 dist/（含 sw.js 与 manifest）
 ```
@@ -79,6 +79,7 @@ npm run build    # 产出 dist/（含 sw.js 与 manifest）
 - [使用说明](docs/USER_GUIDE.md)
 - [备份与恢复](docs/RECOVERY.md)
 - [当前状态与已知限制](docs/STATUS.md)
+- [同步失败定位](docs/SYNC_TROUBLESHOOTING.md)
 
 ## 常见问题
 

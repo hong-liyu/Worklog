@@ -15,8 +15,9 @@
     "test": "vitest run",
     "db:migrate:local": "node scripts/wrangler.mjs d1 migrations apply worklog --local",
     "db:migrate:remote": "node scripts/wrangler.mjs d1 migrations apply worklog --remote",
-    "deploy": "npm test && npm run build && node scripts/wrangler.mjs pages deploy",
-    "deploy:quick": "npm run build && node scripts/wrangler.mjs pages deploy"
+    "db:check:remote": "node scripts/check-deploy.mjs",
+    "deploy": "npm run db:check:remote && npm test && npm run build && node scripts/wrangler.mjs pages deploy",
+    "deploy:quick": "npm run db:check:remote && npm run build && node scripts/wrangler.mjs pages deploy"
   },
   "dependencies": {
     "@lucide/vue": "^1.66.0",
