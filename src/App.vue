@@ -291,10 +291,15 @@ onUnmounted(() => {
     </div>
 
     <section class="summary-card">
-      <div class="summary-label">本月累计</div>
-      <strong>{{ formatHours(summary.totalMinutes) }}</strong>
-      <div class="summary-breakdown"><span>值班 {{ formatHours(summary.dutyMinutes) }}</span><span>加班 {{ formatHours(summary.overtimeMinutes) }}</span></div>
-      <div class="summary-days">已记录 {{ summary.workedDays }} 天</div>
+      <div class="summary-main">
+        <div class="summary-label">本月累计</div>
+        <strong>{{ formatHours(summary.totalMinutes) }}</strong>
+        <div class="summary-days">已记录 {{ summary.workedDays }} 天</div>
+      </div>
+      <div class="summary-breakdown">
+        <div class="summary-metric"><span>值班</span><strong>{{ formatHours(summary.dutyMinutes) }}</strong></div>
+        <div class="summary-metric"><span>加班</span><strong>{{ formatHours(summary.overtimeMinutes) }}</strong></div>
+      </div>
     </section>
 
     <div class="legend">
