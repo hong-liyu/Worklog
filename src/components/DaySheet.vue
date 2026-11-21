@@ -60,15 +60,12 @@ async function removeFromList(record: LocalRecord): Promise<void> {
             :class="record.recordType === 'overtime' ? 'overtime' : record.location"
           >
             <button class="record-edit" type="button" :disabled="deleting !== null" @click="emit('edit', record)">
-            <div class="record-top">
-              <strong>{{ record.recordType === 'overtime' ? record.workContent : record.location ? LOCATION_LABEL[record.location] : '' }}</strong>
-              <strong>{{ formatHours(record.baseMinutes + record.overtimeMinutes) }}</strong>
-            </div>
-            <div class="record-time">{{ record.startTime }} - {{ endLabel(record) }}</div>
-            <div class="record-sub">
-              <template v-if="record.recordType === 'overtime'">独立加班</template>
-              <template v-else>基础 {{ formatHours(record.baseMinutes) }}<span v-if="record.overtimeMinutes"> · 加班 {{ formatHours(record.overtimeMinutes) }}</span></template>
-            </div>
+              <strong class="record-title">{{ record.recordType === 'overtime' ? record.workContent : record.location ? LOCATION_LABEL[record.location] : '' }}</strong>
+              <div class="record-time">{{ record.startTime }} - {{ endLabel(record) }}</div>
+              <div class="record-sub">
+                <template v-if="record.recordType === 'overtime'">独立加班 · {{ formatHours(record.overtimeMinutes) }}</template>
+                <template v-else>基础 {{ formatHours(record.baseMinutes) }}<span v-if="record.overtimeMinutes"> · 加班 {{ formatHours(record.overtimeMinutes) }}</span></template>
+              </div>
             </button>
             <button
               class="record-delete"

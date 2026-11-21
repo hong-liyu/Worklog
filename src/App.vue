@@ -339,13 +339,13 @@ onUnmounted(() => {
         <div class="summary-label">本月累计</div>
         <strong>{{ formatHours(summary.totalMinutes) }}</strong>
       </div>
-      <div class="summary-pay">
-        <div class="summary-label">本月工资</div>
-        <strong>{{ formatSalary(summary.totalMinutes) }}</strong>
-      </div>
       <div class="summary-breakdown">
         <div class="summary-metric"><span>值班</span><strong>{{ formatHours(summary.dutyMinutes) }}</strong></div>
         <div class="summary-metric"><span>加班</span><strong>{{ formatHours(summary.overtimeMinutes) }}</strong></div>
+      </div>
+      <div class="summary-pay">
+        <div class="summary-label">本月工资</div>
+        <strong>{{ formatSalary(summary.totalMinutes) }}</strong>
       </div>
     </section>
 
